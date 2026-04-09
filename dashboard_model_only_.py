@@ -540,7 +540,7 @@ if page == "🎛️ Manual Predict":
             # Table + download
             dcols = ["Step","Day","Month","Hour","PM2.5 (µg/m³)","Alert Prob (%)","Alert","AQI Band"]
             st.dataframe(
-                fdf[dcols].style.applymap(
+                fdf[dcols].style.map(
                     lambda v: "background-color:#3d1515;color:#ff9999" if v=="🚨 YES"
                     else "background-color:#0d2b1a;color:#99ffbb" if v=="✅ NO" else "",
                     subset=["Alert"]),
