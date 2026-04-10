@@ -27,8 +27,8 @@ warnings.filterwarnings("ignore")
 # ▼▼▼  CONFIGURATION — UPDATE THESE TWO LINES WITH YOUR GITHUB RAW URLS  ▼▼▼
 # ═══════════════════════════════════════════════════════════════════════════════
 
-#GITHUB_CLF_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/best_rf_model.pkl"
-#GITHUB_REG_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/best_reg_model.pkl"
+GITHUB_CLF_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/best_rf_model.pkl"
+GITHUB_REG_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/best_reg_model.pkl"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ▲▲▲  NOTHING ELSE NEEDS CHANGING  ▲▲▲
@@ -129,6 +129,7 @@ st.markdown("""
 
 @st.cache_resource(show_spinner=False)
 def load_models():
+    """Load models directly from repo files — no network calls needed."""
     clf = joblib.load("thbest_rf_model.pkl")
     clf_feat = list(clf.feature_names_in_) if hasattr(clf, "feature_names_in_") else None
 
@@ -143,34 +144,6 @@ def load_models():
         reg_type   = "rf"
 
     return clf, clf_feat, reg_model, reg_scaler, reg_type
-
-    # ── Regressor ──────────────────────────────────────────────────────────
-    local_reg = Path("best_reg_model.pkl")
-    if local_reg.exists():
-        try:
-            obj = joblib.load(local_reg)
-        except Exception as e:
-            errors.append(f"Local regressor error: {e}")
-            obj = None
-    else:
-        try:
-            r = requests.get(GITHUB_REG_URL, timeout=60)
-            r.raise_for_status()
-            obj = joblib.load(io.BytesIO(r.content))
-        except Exception as e:
-            errors.append(f"GitHub regressor: {e}")
-            obj = None
-
-    if obj is not None:
-        if isinstance(obj, dict):
-            reg_model  = obj["model"]
-            reg_scaler = obj.get("scaler")
-            reg_type   = obj.get("type","linear")
-        else:
-            reg_model = obj
-            reg_type  = "rf"
-
-    return clf, clf_feat, reg_model, reg_scaler, reg_type, errors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -329,7 +302,7 @@ def forecast_rolling(history, start_hour, start_month, station,
 # ─────────────────────────────────────────────────────────────────────────────
 
 with st.spinner("🔄 Loading prediction models…"):
-    clf, clf_feat, reg_model, reg_scaler, reg_type, load_errors = load_models()
+    clf, clf_feat, reg_model, reg_scaler, reg_type = load_models()
 
 feat_cols = clf_feat if clf_feat else ALL_FEATURE_COLS
 
@@ -347,15 +320,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Model load errors
-if load_errors:
-    with st.expander("⚠️ Model loading issues (click to see details)"):
-        for e in load_errors:
-            st.warning(e)
-        st.info(
-            "To fix: update GITHUB_CLF_URL and GITHUB_REG_URL at the top of the script "
-            "with the raw GitHub URLs of your model files, then restart the app."
-        )
+
 
 if clf is None:
     st.error("❌ The prediction model could not be loaded. Update the GitHub URLs at the top of the script.")
