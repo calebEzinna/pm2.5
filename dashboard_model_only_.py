@@ -99,28 +99,27 @@ st.markdown("""
 # ── Model loaders ─────────────────────────────────────────────────────────────
 
 @st.cache_resource
-def load_clf(clf_bytes, scaler_bytes):
-    clf    = joblib.load(io.BytesIO(clf_bytes))
-    scaler = joblib.load(io.BytesIO(scaler_bytes))
+def load_all_models():
+    """Load all models directly from repo files. Cached — runs once per session."""
+    # Classifier
+    clf    = joblib.load("thbest_rf_model.pkl")
+    scaler = joblib.load("thscaler.pkl")
     feat   = list(clf.feature_names_in_) if hasattr(clf, "feature_names_in_") else None
-    return clf, scaler, feat
 
-
-@st.cache_resource
-def load_reg(reg_bytes):
-    """
-    Handles two formats:
-      1. Plain sklearn model (RF regressor saved directly)
-      2. Dict {model, scaler, type} — from the compress_reg_model.py script
-         or from: joblib.dump({"model": lr, "scaler": sc, "type": "linear"}, ...)
-    """
-    obj = joblib.load(io.BytesIO(reg_bytes))
+    # Regressor
+    obj = joblib.load("best_reg_model.pkl")
     if isinstance(obj, dict):
-        # Wrapped format — unpack everything
-        return obj["model"], None, obj.get("scaler"), obj.get("type", "linear")
-    # Plain sklearn model
-    feat = list(obj.feature_names_in_) if hasattr(obj, "feature_names_in_") else None
-    return obj, feat, None, "rf"
+        reg      = obj["model"]
+        reg_sc   = obj.get("scaler")
+        reg_feat = None
+        reg_type = obj.get("type", "linear")
+    else:
+        reg      = obj
+        reg_sc   = None
+        reg_feat = list(obj.feature_names_in_) if hasattr(obj, "feature_names_in_") else None
+        reg_type = "rf"
+
+    return clf, scaler, feat, reg, reg_feat, reg_sc, reg_type
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -129,10 +128,8 @@ with st.sidebar:
     st.markdown("## 🌫️ PM2.5 Dashboard")
     st.markdown("*Direct model inference*")
     st.markdown("---")
-    st.markdown("### Load Models")
-    clf_file    = st.file_uploader("best_rf_model.pkl  (classifier)", type="pkl", key="clf_up")
-    reg_file    = st.file_uploader("best_reg_model.pkl (regressor)",  type="pkl", key="reg_up")
-    scaler_file = st.file_uploader("scaler.pkl",                      type="pkl", key="scl_up")
+    st.markdown("### Models")
+    st.caption("Loaded automatically from repository")
     st.markdown("---")
     page = st.radio("Navigate", [
         "🎛️ Manual Predict", "📂 Batch Predict",
@@ -145,37 +142,18 @@ with st.sidebar:
 
 # ── Load models ───────────────────────────────────────────────────────────────
 
-clf, clf_scaler, clf_feat       = None, None, None
-reg, reg_feat, reg_scaler, reg_type = None, None, None, None
+with st.spinner("Loading models…"):
+    clf, clf_scaler, clf_feat, reg, reg_feat, reg_scaler, reg_type = load_all_models()
 
-if clf_file and scaler_file:
-    try:
-        clf, clf_scaler, clf_feat = load_clf(clf_file.read(), scaler_file.read())
-        st.sidebar.success(f"✅ Classifier: {type(clf).__name__}")
-        if clf_feat:
-            st.sidebar.caption(f"{len(clf_feat)} features")
-    except Exception as e:
-        st.sidebar.error(f"Classifier load failed: {e}")
-
-if reg_file:
-    try:
-        reg, reg_feat, reg_scaler, reg_type = load_reg(reg_file.read())
-        st.sidebar.success(f"✅ Regressor: {type(reg).__name__} ({reg_type})")
-    except Exception as e:
-        st.sidebar.error(f"Regressor load failed: {e}")
-else:
-    st.sidebar.info(
-        "💡 No regressor loaded.\n\n"
-        "Save from notebook:\n"
-        "`joblib.dump({'model': lr_reg, 'scaler': scaler_reg, 'type': 'linear'}, 'best_reg_model.pkl')`\n\n"
-        "PM2.5 forecast will use roll_24 as fallback until then."
-    )
+st.sidebar.success(f"✅ Classifier: {type(clf).__name__}")
+st.sidebar.caption(f"{len(clf_feat) if clf_feat else '?'} features")
+if reg is not None:
+    _rt = reg.get("type","rf") if isinstance(reg,dict) else (reg_type or "rf")
+    st.sidebar.success(f"✅ Regressor: {type(reg).__name__ if not isinstance(reg,dict) else type(reg['model']).__name__} ({_rt})")
 
 
 def require_clf():
-    if clf is None:
-        st.info("👈 Upload **best_rf_model.pkl** and **scaler.pkl** in the sidebar.")
-        st.stop()
+    pass   # Models are always loaded from repo — no upload needed
 
 
 # ── Core helpers ──────────────────────────────────────────────────────────────
@@ -266,10 +244,8 @@ def compute_lag_roll(history: list) -> dict:
 
 
 def reg_source_label():
-    if reg is None:
-        return "24-hr Rolling Mean (no model loaded)"
     _type = reg.get("type","rf") if isinstance(reg, dict) else (reg_type or "rf")
-    return f"Linear Regression" if _type == "linear" else f"RF Regressor"
+    return "Linear Regression" if _type == "linear" else "RF Regressor"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -302,14 +278,7 @@ if page == "🎛️ Manual Predict":
         f"hour_sin = {h_sin:.4f}, hour_cos = {h_cos:.4f}"
     )
 
-    if reg is None:
-        st.markdown(
-            '<div class="info-box">ℹ️ <b>No regression model loaded.</b> '
-            'PM2.5 values will use the 24-hour rolling mean as a fallback. '
-            'Save from your notebook: '
-            '<code>joblib.dump({"model": lr_reg, "scaler": scaler_reg, "type": "linear"}, '
-            '"best_reg_model.pkl")</code> then upload it in the sidebar.</div>',
-            unsafe_allow_html=True)
+
 
     st.markdown("---")
 
@@ -399,8 +368,7 @@ if page == "🎛️ Manual Predict":
                     f'Alert probability: <b>{alert_prob*100:.1f}%</b>.</div>',
                     unsafe_allow_html=True)
 
-            if reg is None:
-                st.caption(f"⚠️ PM2.5 shown is the 24-hour rolling mean ({r24:.1f} µg/m³) — no regressor loaded.")
+
 
             col_g, col_p = st.columns(2)
             with col_g:
@@ -460,11 +428,19 @@ if page == "🎛️ Manual Predict":
             seed = [h12]*6 + [h6]*6 + [h3]*3 + [h1]*2 + [current_pm25]
             rolling = list(seed)
             cur_hr, cur_mo = hour_num, month_num
+            # Track day of week — advances every time the hour rolls past midnight
+            day_idx = DAY_OPTIONS.index(day_name)   # 0=Mon … 6=Sun
             rows = []
 
             with st.spinner(f"Generating {horizon}-hour forecast…"):
                 for step in range(1, horizon+1):
+                    prev_hr = cur_hr
                     cur_hr, cur_mo = advance_hour(cur_hr, cur_mo)
+                    # Midnight crossed — advance day of week
+                    if cur_hr < prev_hr:
+                        day_idx = (day_idx + 1) % 7
+                    cur_day_name = DAY_OPTIONS[day_idx]
+
                     lr = compute_lag_roll(rolling)
                     fv = {"hour": cur_hr, "month": cur_mo,
                           "station_mean_pm25": station_mean,
@@ -475,7 +451,7 @@ if page == "🎛️ Manual Predict":
                     pm25_fc   = predict_pm25(df_row, lr["roll_24"])
                     aqi_l, aqi_c = aqi_label(pm25_fc)
                     rows.append({
-                        "Step": step, "Day": day_name,
+                        "Step": step, "Day": cur_day_name,
                         "Month": MONTH_OPTIONS[cur_mo-1],
                         "Hour": f"{cur_hr:02d}:00",
                         "PM2.5 (µg/m³)": round(pm25_fc, 2),
