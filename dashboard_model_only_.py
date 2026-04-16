@@ -1,11 +1,9 @@
 """
-PM2.5 Air Quality Prediction Dashboard  —  Model-Direct Edition
 Loads:
     best_rf_model.pkl   — RandomForestClassifier  (alert classification)
     best_reg_model.pkl  — LinearRegression or RF wrapped as dict {model, scaler, type}
     scaler.pkl          — StandardScaler (classification pipeline)
-
-Run:  streamlit run dashboard_model_only.py
+    
 """
 
 import io, re, warnings
@@ -19,8 +17,8 @@ import streamlit as st
 
 warnings.filterwarnings("ignore")
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-ALERT_THRESHOLD = 35
+# Constants 
+ALERT_THRESHOLD = 15
 
 MONTH_OPTIONS = ["January","February","March","April","May","June",
                  "July","August","September","October","November","December"]
@@ -29,9 +27,10 @@ DAY_OPTIONS   = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","
 HOUR_OPTIONS  = [f"{h:02d}:00" for h in range(24)]
 
 AQI_BANDS = [
-    (0,   12,  "Good",             "#27ae60"),
-    (12,  35,  "Moderate",         "#f1c40f"),
-    (35,  55,  "Unhealthy (S.G.)","#e67e22"),
+    (0,   5,   "Excellent (WHO)",  "#1abc9c"),
+    (5,   15,  "Good",             "#27ae60"),
+    (15,  25,  "Moderate",         "#f1c40f"),
+    (25,  55,  "Unhealthy (S.G.)","#e67e22"),
     (55,  150, "Unhealthy",        "#e74c3c"),
     (150, 999, "Hazardous",        "#8e44ad"),
 ]
@@ -72,7 +71,7 @@ def aqi_label(val):
     return "Hazardous", "#8e44ad"
 
 
-# ── Page config & styling ─────────────────────────────────────────────────────
+# Page config & styling
 st.set_page_config(page_title="PM2.5 Dashboard", page_icon="🌫️",
                    layout="wide", initial_sidebar_state="expanded")
 
@@ -96,18 +95,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Model loaders ─────────────────────────────────────────────────────────────
+#  Model loaders
 
 @st.cache_resource
 def load_all_models():
-    """Load all models directly from repo files. Cached — runs once per session."""
+    """Load all models directly . Cached ."""
     # Classifier
-    clf    = joblib.load("thbest_rf_model.pkl")
-    scaler = joblib.load("thscaler.pkl")
+    clf    = joblib.load("the_best_rf_model.pkl")
+    scaler = joblib.load("the_scaler.pkl")
     feat   = list(clf.feature_names_in_) if hasattr(clf, "feature_names_in_") else None
 
     # Regressor
-    obj = joblib.load("best_reg_model.pkl")
+    obj = joblib.load("the_best_reg_model.pkl")
     if isinstance(obj, dict):
         reg      = obj["model"]
         reg_sc   = obj.get("scaler")
@@ -122,7 +121,7 @@ def load_all_models():
     return clf, scaler, feat, reg, reg_feat, reg_sc, reg_type
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# Sidebar
 
 with st.sidebar:
     st.markdown("## 🌫️ PM2.5 Dashboard")
@@ -136,11 +135,11 @@ with st.sidebar:
         "🔬 Model Inspector", "📖 Feature Guide",
     ], label_visibility="collapsed")
     st.markdown("---")
-    threshold = st.slider("Alert threshold (µg/m³)", 10, 75, ALERT_THRESHOLD)
-    st.caption("WHO 24-hour guideline = 35 µg/m³")
+    threshold = st.slider("Alert threshold (µg/m³)", 5, 50, ALERT_THRESHOLD)
+    st.caption("WHO 2021 24-hour guideline = 15 µg/m³")
 
 
-# ── Load models ───────────────────────────────────────────────────────────────
+# Load models
 
 with st.spinner("Loading models…"):
     clf, clf_scaler, clf_feat, reg, reg_feat, reg_scaler, reg_type = load_all_models()
@@ -153,10 +152,10 @@ if reg is not None:
 
 
 def require_clf():
-    pass   # Models are always loaded from repo — no upload needed
+    pass  
 
 
-# ── Core helpers ──────────────────────────────────────────────────────────────
+# Core helpers
 
 def build_feature_row(values: dict, station: str, feat_cols=None) -> pd.DataFrame:
     """Build one feature row, computing hour_sin/cos automatically."""
@@ -186,19 +185,12 @@ def predict_pm25(df_row: pd.DataFrame, fallback_roll24: float) -> float:
     """
     Return predicted PM2.5 concentration.
 
-    Handles three cases:
-      1. No regressor loaded        → return roll_24 as honest fallback
-      2. Dict format loaded as reg  → unwrap and apply scaler if linear
-      3. Plain sklearn model        → predict directly
-
-    The dict-unwrap inside this function ensures it works even if the
-    global load_reg function did not unpack the dict correctly.
     """
     if reg is None:
         return float(np.clip(fallback_roll24, 0.0, 999.0))
 
     try:
-        # ── Unwrap dict format defensively ────────────────────────────────────
+        # Unwrap dict format defensively
         if isinstance(reg, dict):
             _model  = reg["model"]
             _scaler = reg.get("scaler")
@@ -208,7 +200,7 @@ def predict_pm25(df_row: pd.DataFrame, fallback_roll24: float) -> float:
             _scaler = reg_scaler
             _type   = reg_type if reg_type else "rf"
 
-        # ── Align feature columns ──────────────────────────────────────────────
+        # Align feature columns
         feat_cols  = reg_feat if reg_feat else (clf_feat or list(df_row.columns))
         df_aligned = df_row.copy()
         for col in feat_cols:
@@ -216,7 +208,7 @@ def predict_pm25(df_row: pd.DataFrame, fallback_roll24: float) -> float:
                 df_aligned[col] = 0.0
         X_in = df_aligned[feat_cols].fillna(0.0)
 
-        # ── Apply scaler for linear regression ────────────────────────────────
+        # Apply scaler for linear regression
         if _type == "linear" and _scaler is not None:
             X_in = _scaler.transform(X_in)
 
@@ -248,9 +240,7 @@ def reg_source_label():
     return "Linear Regression" if _type == "linear" else "RF Regressor"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PAGE 1 — MANUAL PREDICT
-# ─────────────────────────────────────────────────────────────────────────────
 
 if page == "🎛️ Manual Predict":
 
@@ -330,7 +320,7 @@ if page == "🎛️ Manual Predict":
 
     st.markdown("---")
 
-    # ── SINGLE OBSERVATION ────────────────────────────────────────────────────
+    # SINGLE OBSERVATION
     if mode == "🔍 Single Observation":
 
         if st.button("🔮 Predict Now", type="primary", use_container_width=True):
@@ -377,11 +367,12 @@ if page == "🎛️ Manual Predict":
                     number={"suffix":"%","font":{"size":34}},
                     title={"text":"Alert Probability","font":{"size":15}},
                     gauge={
-                        "axis":{"range":[0,100],"tickcolor":"#aaa"},
+                        "axis":{"range":[0,60],"tickcolor":"#aaa"},
                         "bar":{"color":"#e74c3c" if alert_prob>0.5 else "#f1c40f" if alert_prob>0.3 else "#2ecc71"},
-                        "steps":[{"range":[0,30],"color":"#0d2b1a"},
-                                 {"range":[30,50],"color":"#2b2200"},
-                                 {"range":[50,100],"color":"#3d1515"}],
+                        "steps":[{"range":[0,5],  "color":"#0d3b2b"},
+                                 {"range":[5,15],  "color":"#0d2b1a"},
+                                 {"range":[15,25], "color":"#2b2200"},
+                                 {"range":[25,60], "color":"#3d1515"}],
                         "threshold":{"line":{"color":"white","width":3},"thickness":0.8,"value":50},
                     },
                 ))
@@ -395,12 +386,12 @@ if page == "🎛️ Manual Predict":
                     number={"suffix":" µg/m³","font":{"size":26}},
                     title={"text":f"Predicted PM2.5 — {aqi_lbl}","font":{"size":14}},
                     gauge={
-                        "axis":{"range":[0,100],"tickcolor":"#aaa"},
+                        "axis":{"range":[0,60],"tickcolor":"#aaa"},
                         "bar":{"color":aqi_clr},
-                        "steps":[{"range":[0,12],"color":"#0d2b1a"},
-                                 {"range":[12,35],"color":"#2b2200"},
-                                 {"range":[35,55],"color":"#3d2000"},
-                                 {"range":[55,100],"color":"#3d1515"}],
+                        "steps":[{"range":[0,5],  "color":"#0d3b2b"},
+                                 {"range":[5,15],  "color":"#0d2b1a"},
+                                 {"range":[15,25], "color":"#2b2200"},
+                                 {"range":[25,60], "color":"#3d1515"}],
                         "threshold":{"line":{"color":"white","width":3},"thickness":0.8,"value":threshold},
                     },
                 ))
@@ -411,7 +402,7 @@ if page == "🎛️ Manual Predict":
             with st.expander("🔍 Feature vector sent to model"):
                 st.dataframe(df_row.T.rename(columns={0:"value"}), use_container_width=True)
 
-    # ── FUTURE FORECAST ───────────────────────────────────────────────────────
+    # FUTURE FORECAST
     else:
         st.markdown("### 📈 Future PM2.5 Forecast")
         st.markdown("Rolls forward hour by hour — each prediction feeds back as a lag for the next step.")
@@ -488,9 +479,9 @@ if page == "🎛️ Manual Predict":
             fig_fc.add_hline(y=threshold, line_dash="dash", line_color="#e74c3c",
                              annotation_text=f"WHO threshold ({threshold} µg/m³)",
                              annotation_position="top right")
-            fig_fc.add_hline(y=current_pm25, line_dash="dot", line_color="#aaa",
-                             annotation_text=f"Current ({current_pm25:.1f})",
-                             annotation_position="bottom right")
+            fig_fc.add_hline(y=threshold, line_dash="dash", line_color="#e74c3c",
+                 annotation_text=f"Alert threshold ({threshold} µg/m³)",
+                 annotation_position="top right")
             fig_fc.update_layout(
                 template="plotly_dark", height=400,
                 title=f"{horizon}-Hour Forecast — {station} — {day_name} {hour_label}, {month_name}",
@@ -539,9 +530,7 @@ if page == "🎛️ Manual Predict":
                     unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PAGE 2 — BATCH PREDICT
-# ─────────────────────────────────────────────────────────────────────────────
 
 elif page == "📂 Batch Predict":
     st.markdown("# 📂 Batch Prediction")
@@ -561,7 +550,7 @@ elif page == "📂 Batch Predict":
                            t.to_csv(index=False).encode(),
                            "pm25_feature_template.csv","text/csv")
 
-    batch_file = st.file_uploader("Upload engineered feature CSV", type="csv")
+    batch_file = st.file_uploader("Upload feature CSV", type="csv")
     if batch_file:
         try:
             bdf = pd.read_csv(batch_file)
@@ -633,9 +622,7 @@ elif page == "📂 Batch Predict":
             st.error(f"Error: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PAGE 3 — MODEL INSPECTOR
-# ─────────────────────────────────────────────────────────────────────────────
 
 elif page == "🔬 Model Inspector":
     st.markdown("# 🔬 Model Inspector")
@@ -736,9 +723,7 @@ elif page == "🔬 Model Inspector":
             st.info("No regression model loaded. Upload best_reg_model.pkl in the sidebar.")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PAGE 4 — FEATURE GUIDE
-# ─────────────────────────────────────────────────────────────────────────────
 
 elif page == "📖 Feature Guide":
     st.markdown("# 📖 Feature Guide")
@@ -760,7 +745,7 @@ elif page == "📖 Feature Guide":
                  "roll_3":           ("",0,999,7,"3-hour rolling mean µg/m³"),
                  "roll_6":           ("",0,999,7,"6-hour rolling mean µg/m³"),
                  "roll_12":          ("",0,999,6.8,"12-hour rolling mean µg/m³"),
-                 "roll_24":          ("",0,999,6.5,"24-hour rolling mean (≈ WHO guideline metric) µg/m³"),
+                 "roll_24":          ("",0,999,6.5,"24-hour rolling meandirectly comparable to WHO 2021 15 µg/m³ guideline"),
              }.items()]
     st.dataframe(pd.DataFrame(guide), use_container_width=True, hide_index=True)
 
@@ -776,8 +761,7 @@ elif page == "📖 Feature Guide":
 
     st.markdown("---")
     st.markdown('<div class="section-title">Alert Target</div>', unsafe_allow_html=True)
-    st.latex(r"\text{alert} = \begin{cases}1 & y > 35\,\mu\text{g/m}^3\\0&\text{otherwise}\end{cases}")
-
+    st.latex(r"\text{alert} = \begin{cases}1 & y > 15\,\mu\text{g/m}^3\\0&\text{otherwise}\end{cases}")
     st.markdown("---")
     st.markdown('<div class="section-title">AQI Bands</div>', unsafe_allow_html=True)
     st.dataframe(
