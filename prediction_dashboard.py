@@ -339,7 +339,7 @@ if page == "🎛️ Manual Predict":
             m3.metric("Alert Prediction",  "🚨 ALERT" if alert_pred else "✅ SAFE")
             m4.metric("AQI Band",          aqi_lbl)
 
-            if alert_pred == 1 or pm25 > threshold:
+            if alert_pred == 1 and pm25 > threshold:
                 st.markdown(
                     f'<div class="alert-box">🚨 <b>Pollution alert predicted.</b> '
                     f'PM2.5: <b>{pm25:.1f} µg/m³</b> — exceeds {threshold} µg/m³. '
@@ -447,7 +447,7 @@ if page == "🎛️ Manual Predict":
                         "Hour": f"{cur_hr:02d}:00",
                         "PM2.5 (µg/m³)": round(pm25_fc, 2),
                         "Alert Prob (%)": round(alert["alert_prob"]*100, 2),
-                        "Alert": "🚨 YES" if (alert["alert_pred"] or pm25_fc>threshold) else "✅ NO",
+                        "Alert": "🚨 YES" if (alert["alert_pred"] and pm25_fc>threshold) else "✅ NO",
                         "AQI Band": aqi_l,
                         "_c": aqi_c,
                     })
