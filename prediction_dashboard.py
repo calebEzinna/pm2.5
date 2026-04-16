@@ -106,7 +106,7 @@ def load_all_models():
     feat   = list(clf.feature_names_in_) if hasattr(clf, "feature_names_in_") else None
 
     # Regressor
-    obj = joblib.load("the_best_reg_model.pkl")
+    obj = joblib.load("best_reg_model.pkl")
     if isinstance(obj, dict):
         reg      = obj["model"]
         reg_sc   = obj.get("scaler")
